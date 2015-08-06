@@ -43,7 +43,7 @@ npm install
 #### Build
 
 ```
-gulp make
+gulp less bundle
 ```
 
 After `gulp make` finishes the `public` directory will contain the complete SlamData front-end app.

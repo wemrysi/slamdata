@@ -3,7 +3,6 @@
     "restoreCmd": "mongorestore -d testDb --drop test/dump/demo",
     "selenium": {
         "jar": "test/jars/selenium.jar",
-        "main": "Test.Selenium",
         "browser": "firefox",
         "waitTime": 6000
     },

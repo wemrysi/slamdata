@@ -3,109 +3,20 @@
 var gulp = require("gulp"),
     purescript = require("gulp-purescript"),
     less = require("gulp-less"),
-
-    browserify = require('browserify'),
-    watchify = require('watchify'),
-    plumber = require('gulp-plumber'),
-    gutil = require('gulp-util'),
-    source = require('vinyl-source-stream'),
-    buffer = require('vinyl-buffer'),
-    chalk = require('chalk'),
-    watch = require('gulp-watch');
-
+    watch = require("gulp-watch"),
+    webpack = require("webpack-stream");
 
 var sources = [
     "src/**/*.purs",
-    "bower_components/purescript-*/src/**/*.purs"
+    "bower_components/purescript-*/src/**/*.purs",
+    "test/src/**/*.purs"
 ];
 
 var foreigns = [
     "src/**/*.js",
-    "bower_components/purescript-*/src/**/*.js"
-];
-
-var testSources = [
-    "test/src/**/*.purs"
-];
-
-var testForeigns = [
+    "bower_components/purescript-*/src/**/*.js",
     "test/src/**/*.js"
 ];
-
-var fileBundler = watchify(browserify({
-    entries: ['entries/file.js'],
-    paths: ["output", "node_modules"],
-    cache: {},
-    packageCache: {}
-}));
-
-var notebookBundler =  watchify(browserify({
-    entries: ['entries/notebook.js'],
-    paths: ["output", "node_modules"],
-    cache: {},
-    packageCache: {}
-}));
-
-function bundleFile() {
-    var filename = chalk.magenta('file.js');
-    gutil.log("Browserify bundling " + filename + "...");
-    return fileBundler.bundle()
-        .on("error", gutil.log.bind(gutil, "Browserify error bundling " + filename))
-        .pipe(source('file.js'))
-        .pipe(gulp.dest("public/js"))
-        .on("end", gutil.log.bind(gutil, "Browserify bundle " + filename + " updated"));
-}
-
-function bundleNotebook() {
-    var filename = chalk.magenta('notebook.js');
-    gutil.log("Browserify bundling " + filename + "...");
-    return notebookBundler.bundle()
-        .on("error", gutil.log.bind(gutil, "Browserify error bundling " + filename))
-        .pipe(source('notebook.js'))
-        .pipe(gulp.dest("public/js"))
-        .on("end", gutil.log.bind(gutil, "Browserify bundle " + filename + " updated"));
-}
-
-
-
-gulp.task('bundle-file', ['make'], bundleFile);
-
-gulp.task('bundle-notebook', ['make'], bundleNotebook);
-
-gulp.task('watch-file', ['bundle-file'], function() {
-    watch(sources.concat(foreigns), function() {
-        gulp.start('bundle-file');
-    });
-});
-
-gulp.task('watch-notebook', ['bundle-notebook'], function() {
-    watch(sources.concat(foreigns), function() {
-        gulp.start('bundle-notebook');
-    });
-});
-
-gulp.task("test-make", function() {
-    return purescript.psc({
-        src: sources.concat(testSources),
-        ffi: foreigns.concat(testForeigns)
-    });
-});
-
-
-gulp.task("watch-test", ['test-make'], function() {
-    watch(sources.concat(testSources).concat(foreigns).concat(testForeigns),
-          function() {
-              gulp.start('test-make');
-          });
-});
-
-gulp.task("run-tests", ['test-make'], function() {
-    require("./test/main.js");
-});
-
-gulp.task('bundle', ['bundle-file', 'bundle-notebook'], function() {
-    process.exit(0);
-});
 
 gulp.task("make", function() {
     return purescript.psc({
@@ -114,11 +25,39 @@ gulp.task("make", function() {
     });
 });
 
+var bundleTasks = [];
+
+var mkBundleTask = function (name, main) {
+
+    gulp.task("prebundle-" + name, ["make"], function() {
+      return purescript.pscBundle({
+        src: "output/**/*.js",
+        output: "tmp/" + name + ".js",
+        module: main,
+        main: main
+      });
+    });
+
+    gulp.task("bundle-" + name, ["prebundle-" + name], function () {
+      return gulp.src("tmp/" + name + ".js")
+        .pipe(webpack({
+          resolve: { modulesDirectories: ["node_modules"] },
+          output: { filename: name + ".js" }
+        }))
+        .pipe(gulp.dest("public/js"));
+    });
+
+    return "bundle-" + name;
+};
+
+gulp.task("bundle", [
+    mkBundleTask("file", "Entries.File"),
+    mkBundleTask("notebook", "Entries.Notebook")
+]);
+
 gulp.task("less", function() {
     return gulp.src(["less/main.less"])
-        .pipe(less({
-            paths: ["less/**/*.less"]
-        }))
+        .pipe(less({ paths: ["less/**/*.less"] }))
         .pipe(gulp.dest("public/css"));
 });
 
@@ -127,4 +66,43 @@ gulp.task("watch-less", ["less"], function() {
                       ["less"]);
 });
 
-gulp.task('default', ['watch-less', 'watch-file', 'watch-notebook']);
+gulp.task("watch-file", ["bundle-file"], function() {
+    watch(sources.concat(foreigns), function() {
+        gulp.start("bundle-file");
+    });
+});
+
+gulp.task("watch-notebook", ["bundle-notebook"], function() {
+    watch(sources.concat(foreigns), function() {
+        gulp.start("bundle-notebook");
+    });
+});
+
+gulp.task("make-test", function() {
+    return purescript.psc({
+        src: sources.concat(testSources),
+        ffi: foreigns.concat(testForeigns)
+    });
+});
+
+gulp.task("watch-test", ["make-test"], function() {
+    watch(sources.concat(testSources).concat(foreigns).concat(testForeigns),
+          function() {
+              gulp.start("make-test");
+          });
+});
+
+gulp.task("bundle-test", ["make"], function() {
+  return purescript.pscBundle({
+    src: "output/**/*.js",
+    output: "tmp/test.js",
+    module: "Test.Selenium",
+    main: "Test.Selenium"
+  });
+});
+
+gulp.task("test", ["bundle-test"], function() {
+    require("./test/main.js");
+});
+
+gulp.task("default", ["watch-less", "watch-file", "watch-notebook"]);
